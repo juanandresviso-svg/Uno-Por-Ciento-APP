@@ -12,16 +12,20 @@ function LoginForm() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(params.get("e") === "correo" ? "Ese correo no tiene acceso a esta app." : "");
-  const supabase = createClient();
 
   async function sendCode(e: React.FormEvent) {
     e.preventDefault();
     if (!/^\S+@\S+\.\S+$/.test(email)) return setErr("Escribe un correo válido.");
     setBusy(true);
     setErr("");
+    const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim().toLowerCase(), options: { shouldCreateUser: true } });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) {
+      if (/rate limit|security purposes|seconds/i.test(error.message))
+        return setErr("Ya se mandaron varios códigos hace poco. Usa el último que te llegó con “Ya tengo un código”, o espera unos minutos.");
+      return setErr(error.message);
+    }
     setStep("code");
   }
 
@@ -31,6 +35,7 @@ function LoginForm() {
     if (token.length < 6) return setErr("El código tiene al menos 6 dígitos.");
     setBusy(true);
     setErr("");
+    const supabase = createClient();
     const { error } = await supabase.auth.verifyOtp({ email: email.trim().toLowerCase(), token, type: "email" });
     setBusy(false);
     if (error) return setErr("Código incorrecto o vencido. Pide uno nuevo.");
@@ -51,6 +56,18 @@ function LoginForm() {
           </div>
           <div className="err" role="alert">{err}</div>
           <button className="btn primary" style={{ width: "100%" }} disabled={busy}>{busy ? "Enviando…" : "Enviarme el código"}</button>
+          <button
+            type="button"
+            className="back"
+            style={{ marginTop: 16 }}
+            onClick={() => {
+              if (!/^\S+@\S+\.\S+$/.test(email)) return setErr("Escribe primero tu correo.");
+              setErr("");
+              setStep("code");
+            }}
+          >
+            Ya tengo un código
+          </button>
         </form>
       ) : (
         <form onSubmit={verify} noValidate>
