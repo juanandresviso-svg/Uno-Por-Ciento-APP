@@ -12,13 +12,13 @@ function LoginForm() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(params.get("e") === "correo" ? "Ese correo no tiene acceso a esta app." : "");
+  const supabase = createClient();
 
   async function sendCode(e: React.FormEvent) {
     e.preventDefault();
     if (!/^\S+@\S+\.\S+$/.test(email)) return setErr("Escribe un correo válido.");
     setBusy(true);
     setErr("");
-    const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim().toLowerCase(), options: { shouldCreateUser: true } });
     setBusy(false);
     if (error) return setErr(error.message);
@@ -31,7 +31,6 @@ function LoginForm() {
     if (token.length < 6) return setErr("El código tiene al menos 6 dígitos.");
     setBusy(true);
     setErr("");
-    const supabase = createClient();
     const { error } = await supabase.auth.verifyOtp({ email: email.trim().toLowerCase(), token, type: "email" });
     setBusy(false);
     if (error) return setErr("Código incorrecto o vencido. Pide uno nuevo.");
