@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { addDays, todayKey } from "@/lib/dates";
 import { logsToMap, streak } from "@/lib/habits";
@@ -38,7 +38,9 @@ export const useHabits = () => {
 const HISTORY_DAYS = 400;
 
 export default function HabitsProvider({ children }: { children: React.ReactNode }) {
-  const supabase = useMemo(() => createClient(), []);
+  // El cliente se crea al usarse (no durante el build), así el prerender no necesita las claves.
+  const sbRef = useRef<ReturnType<typeof createClient> | null>(null);
+  const sb = useCallback(() => (sbRef.current ??= createClient()), []);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [today, setToday] = useState(todayKey());
@@ -61,15 +63,15 @@ export default function HabitsProvider({ children }: { children: React.ReactNode
   const reload = useCallback(async () => {
     const t = todayKey();
     setToday(t);
-    const { data: auth } = await supabase.auth.getUser();
+    const { data: auth } = await sb().auth.getUser();
     const user = auth.user;
     if (!user) return;
     setEmail(user.email ?? null);
 
     const [h, l, s] = await Promise.all([
-      supabase.from("habits").select("*").is("archived_at", null).order("position").order("created_at"),
-      supabase.from("habit_logs").select("habit_id, day, value").gte("day", addDays(t, -HISTORY_DAYS)),
-      supabase.from("user_settings").select("*").maybeSingle(),
+      sb().from("habits").select("*").is("archived_at", null).order("position").order("created_at"),
+      sb().from("habit_logs").select("habit_id, day, value").gte("day", addDays(t, -HISTORY_DAYS)),
+      sb().from("user_settings").select("*").maybeSingle(),
     ]);
     if (h.error || l.error || s.error) {
       setError((h.error || l.error || s.error)!.message);
@@ -83,12 +85,12 @@ export default function HabitsProvider({ children }: { children: React.ReactNode
     } else {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_SETTINGS.timezone;
       const row = { ...DEFAULT_SETTINGS, email: user.email ?? null, timezone: tz };
-      await supabase.from("user_settings").upsert(row);
+      await sb().from("user_settings").upsert(row);
       setSettings(row);
     }
     setError(null);
     setReady(true);
-  }, [supabase]);
+  }, [sb]);
 
   useEffect(() => {
     reload();
@@ -108,8 +110,8 @@ export default function HabitsProvider({ children }: { children: React.ReactNode
       });
       const req =
         value > 0
-          ? supabase.from("habit_logs").upsert({ habit_id: h.id, day, value }, { onConflict: "habit_id,day" })
-          : supabase.from("habit_logs").delete().eq("habit_id", h.id).eq("day", day);
+          ? sb().from("habit_logs").upsert({ habit_id: h.id, day, value }, { onConflict: "habit_id,day" })
+          : sb().from("habit_logs").delete().eq("habit_id", h.id).eq("day", day);
       req.then(({ error }) => {
         if (error) {
           setLogs((cur) => ({ ...cur, [h.id]: { ...(cur[h.id] ?? {}), [day]: prev } }));
@@ -117,7 +119,7 @@ export default function HabitsProvider({ children }: { children: React.ReactNode
         }
       });
     },
-    [supabase, toast]
+    [sb, toast]
   );
 
   const tap = useCallback(
@@ -152,13 +154,13 @@ export default function HabitsProvider({ children }: { children: React.ReactNode
         color: d.color,
       };
       if (d.id) {
-        const { data, error } = await supabase.from("habits").update(payload).eq("id", d.id).select().single();
+        const { data, error } = await sb().from("habits").update(payload).eq("id", d.id).select().single();
         if (error) return error.message;
         setHabits((hs) => hs.map((h) => (h.id === d.id ? { ...(data as Habit), remind_time: payload.remind_time } : h)));
         toast("Cambios guardados");
       } else {
         const position = habits.length ? Math.max(...habits.map((h) => h.position)) + 1 : 0;
-        const { data, error } = await supabase
+        const { data, error } = await sb()
           .from("habits")
           .insert({ ...payload, position, start_date: today })
           .select()
@@ -169,35 +171,35 @@ export default function HabitsProvider({ children }: { children: React.ReactNode
       }
       return null;
     },
-    [supabase, habits, today, toast]
+    [sb, habits, today, toast]
   );
 
   const updateHabit = useCallback(
     async (id: string, patch: Partial<Habit>) => {
       setHabits((hs) => hs.map((h) => (h.id === id ? { ...h, ...patch } : h)));
-      const { error } = await supabase.from("habits").update(patch).eq("id", id);
+      const { error } = await sb().from("habits").update(patch).eq("id", id);
       if (error) toast("No se pudo guardar el cambio");
     },
-    [supabase, toast]
+    [sb, toast]
   );
 
   const archiveHabit = useCallback(
     async (id: string) => {
-      const { error } = await supabase.from("habits").update({ archived_at: new Date().toISOString() }).eq("id", id);
+      const { error } = await sb().from("habits").update({ archived_at: new Date().toISOString() }).eq("id", id);
       if (error) return toast("No se pudo eliminar");
       setHabits((hs) => hs.filter((h) => h.id !== id));
       toast("Hábito eliminado");
     },
-    [supabase, toast]
+    [sb, toast]
   );
 
   const updateSettings = useCallback(
     async (patch: Partial<Settings>) => {
       setSettings((s) => ({ ...s, ...patch }));
-      const { error } = await supabase.from("user_settings").update({ ...patch, updated_at: new Date().toISOString() }).not("user_id", "is", null);
+      const { error } = await sb().from("user_settings").update({ ...patch, updated_at: new Date().toISOString() }).not("user_id", "is", null);
       if (error) toast("No se pudo guardar el ajuste");
     },
-    [supabase, toast]
+    [sb, toast]
   );
 
   const value: Ctx = {
