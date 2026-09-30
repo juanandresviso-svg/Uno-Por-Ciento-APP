@@ -40,6 +40,9 @@ export interface Settings {
   daily_email: boolean;
   daily_email_time: string;
   weekly_email: boolean;
+  task_digest: boolean;
+  task_digest_time: string;
+  projects_seeded?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -52,4 +55,40 @@ export const DEFAULT_SETTINGS: Settings = {
   daily_email: true,
   daily_email_time: "21:30",
   weekly_email: true,
+  task_digest: true,
+  task_digest_time: "08:00",
 };
+
+// ─────────── Fase 2: Tareas ───────────
+export type Priority = 1 | 2 | 3; // 1 alta · 2 media · 3 baja
+
+export interface Project {
+  id: string;
+  name: string;
+  color: HabitColor;
+  position: number;
+  archived_at?: string | null;
+}
+
+export interface Task {
+  id: string;
+  project_id: string | null;
+  title: string;
+  notes: string;
+  priority: Priority;
+  due_date: string | null; // YYYY-MM-DD
+  due_time: string | null; // HH:MM
+  remind: boolean;
+  someday: boolean;
+  done_at: string | null;
+  position: number;
+  created_at: string;
+}
+
+export interface Subtask {
+  id: string;
+  task_id: string;
+  title: string;
+  done: boolean;
+  position: number;
+}

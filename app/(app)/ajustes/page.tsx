@@ -130,6 +130,28 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      <div className="section-label"><span>Tareas</span></div>
+      <div className="card flush">
+        <div className="set">
+          <b>Resumen de la mañana</b>
+          <small>
+            Lo que vence hoy y lo atrasado, a las{" "}
+            <input
+              type="time"
+              id="digest-time"
+              className="timein"
+              value={hhmm(settings.task_digest_time)}
+              onChange={(e) => e.target.value && updateSettings({ task_digest_time: e.target.value })}
+              aria-label="Hora del resumen de tareas"
+            />
+          </small>
+          {sw("task_digest", "Resumen de la mañana")}
+        </div>
+        <div className="set single">
+          <small>Cada tarea con hora y aviso activado te llega como notificación a esa hora. Las tareas también salen en el resumen diario por correo.</small>
+        </div>
+      </div>
+
       <div className="section-label"><span>Correo</span></div>
       <div className="card flush">
         <div className="set">
@@ -161,7 +183,6 @@ export default function SettingsPage() {
 
       <div className="section-label"><span>Próximos módulos</span></div>
       <div className="card soonlist">
-        <div><b>Tareas</b><span className="chip">Fase 2</span></div>
         <div><b>Finanzas</b><span className="chip">Fase 3</span></div>
       </div>
 

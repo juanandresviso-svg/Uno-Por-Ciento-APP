@@ -3,8 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { nowIn, toMinutes } from "@/lib/dates";
 import { isDone, isScheduled, missedLast, streak } from "@/lib/habits";
 import { sendPushToUser } from "@/lib/push";
-import { loadUserData } from "@/lib/server-data";
-import { dailySummary, weeklySummary } from "@/lib/summary";
+import { loadUserData, loadUserTasks } from "@/lib/server-data";
+import { dailySummary, splitTasks, weeklySummary } from "@/lib/summary";
+import { daysBetween } from "@/lib/tasks";
 import { sendEmail } from "@/lib/email";
 import type { Settings } from "@/lib/types";
 
@@ -39,6 +40,9 @@ async function handler(req: Request) {
     try {
       const { key: today, minutes } = nowIn(s.timezone || "America/Caracas");
       const { habits, logs } = await loadUserData(db, s.user_id, today);
+      const taskData = await loadUserTasks(db, s.user_id, today);
+      const tz = s.timezone || "America/Caracas";
+      const tasks = splitTasks(taskData, today, tz);
       const { data: sentRows } = await db.from("notification_log").select("kind, ref, sent_at").eq("user_id", s.user_id).eq("day", today);
       const sent = new Map((sentRows ?? []).map((x) => [`${x.kind}:${x.ref}`, x.sent_at as string]));
 
@@ -86,11 +90,59 @@ async function handler(req: Request) {
         }
       }
 
+      // 1b) Recordatorios de tareas a su hora
+      if (s.push_enabled && !inQuiet(s, minutes)) {
+        for (const t of tasks.today) {
+          const at = toMinutes(t.due_time);
+          if (!t.remind || at === null || sent.has(`task:${t.id}`)) continue;
+          const snoozedAt = sent.get(`task-snooze:${t.id}`);
+          const due = snoozedAt
+            ? Date.now() - new Date(snoozedAt).getTime() >= SNOOZE * 60_000
+            : minutes >= at && minutes - at <= REMIND_WINDOW;
+          if (!due || !(await claim("task", t.id))) continue;
+          const project = tasks.projects.find((p) => p.id === t.project_id);
+          const n = await sendPushToUser(db, s.user_id, {
+            title: t.title,
+            body: [project?.name, t.priority === 1 ? "Prioridad alta" : null, t.notes ? t.notes.slice(0, 80) : null].filter(Boolean).join(" · ") || "Es la hora de esta tarea.",
+            url: `/tareas/${t.id}`,
+            tag: `task-${t.id}`,
+            taskId: t.id,
+            actions: [
+              { action: "done", title: "Hecha" },
+              { action: "later", title: "En 30 min" },
+            ],
+          });
+          r.pushes = (r.pushes as number) + n;
+        }
+      }
+
+      // 1c) Resumen de tareas de la mañana
+      const digestAt = toMinutes(s.task_digest_time) ?? 8 * 60;
+      const pendingTasks = tasks.overdue.length + tasks.today.length;
+      if (s.push_enabled && s.task_digest && pendingTasks && minutes >= digestAt && minutes - digestAt <= 180 && !sent.has("tasks-morning:")) {
+        if (await claim("tasks-morning")) {
+          const oldest = tasks.overdue[0];
+          const parts = [
+            tasks.today.length ? `${tasks.today.length} para hoy` : null,
+            tasks.overdue.length ? `${tasks.overdue.length} vencidas` : null,
+          ].filter(Boolean);
+          const top = [...tasks.overdue, ...tasks.today].slice(0, 3).map((t) => t.title).join(" · ");
+          const n = await sendPushToUser(db, s.user_id, {
+            title: `Tareas: ${parts.join(", ")}`,
+            body: oldest ? `La más atrasada lleva ${daysBetween(oldest.due_date!, today)} días: ${oldest.title}` : top,
+            url: "/tareas",
+            tag: "tasks-morning",
+          });
+          r.pushes = (r.pushes as number) + n;
+        }
+      }
+
       // 2) Resumen diario por correo
       const dailyAt = toMinutes(s.daily_email_time)!;
-      if (s.daily_email && s.email && minutes >= dailyAt && habits.length && !sent.has("daily:")) {
+      const hasTaskNews = pendingTasks + tasks.tomorrow.length + tasks.doneToday.length > 0;
+      if (s.daily_email && s.email && minutes >= dailyAt && (habits.length || hasTaskNews) && !sent.has("daily:")) {
         if (await claim("daily")) {
-          const { subject, html } = dailySummary(habits, logs, today);
+          const { subject, html } = dailySummary(habits, logs, today, tasks);
           await sendEmail(s.email, subject, html);
           r.daily = true;
         }

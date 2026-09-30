@@ -19,7 +19,7 @@ self.addEventListener("push", (event) => {
       badge: "/icons/badge-96.png",
       tag: data.tag,
       renotify: !!data.tag,
-      data: { url: data.url || "/", habitId: data.habitId },
+      data: { url: data.url || "/", habitId: data.habitId, taskId: data.taskId },
       actions: data.actions || [],
     })
   );
@@ -44,16 +44,16 @@ async function refreshClients() {
 
 self.addEventListener("notificationclick", (event) => {
   const n = event.notification;
-  const { url, habitId } = n.data || {};
+  const { url, habitId, taskId } = n.data || {};
   n.close();
 
-  if ((event.action === "done" || event.action === "later") && habitId) {
+  if ((event.action === "done" || event.action === "later") && (habitId || taskId)) {
     event.waitUntil(
       fetch("/api/push/action", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ habitId, action: event.action }),
+        body: JSON.stringify({ habitId, taskId, action: event.action }),
       })
         .then((res) => {
           if (!res.ok) return focusOrOpen(url || "/");

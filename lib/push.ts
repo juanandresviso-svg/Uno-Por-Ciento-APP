@@ -7,6 +7,7 @@ export interface PushPayload {
   url?: string;
   tag?: string;
   habitId?: string;
+  taskId?: string;
   actions?: { action: string; title: string }[];
 }
 

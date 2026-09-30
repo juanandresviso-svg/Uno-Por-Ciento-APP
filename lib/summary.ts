@@ -1,6 +1,7 @@
-import { DOW, addDays, longDate, weekday } from "./dates";
+import { DOW, addDays, fmtTime, longDate, nowIn, weekday } from "./dates";
 import { avg, bestStreak, cellState, dayRatio, isDone, isScheduled, missedLast, streak } from "./habits";
-import type { Habit, LogMap } from "./types";
+import type { Habit, LogMap, Project, Task } from "./types";
+import { compareTasks, daysBetween } from "./tasks";
 
 const APP = () => process.env.NEXT_PUBLIC_APP_URL || "";
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -17,7 +18,45 @@ ${APP() ? `<p style="text-align:center;margin:20px 0"><a href="${APP()}" style="
 const row = (left: string, right: string, muted = false) =>
   `<tr><td style="padding:7px 0;border-bottom:1px solid #eef1ef;${muted ? "color:#5c6b66" : ""}">${left}</td><td style="padding:7px 0;border-bottom:1px solid #eef1ef;text-align:right;font-family:Menlo,monospace;font-size:13px;${muted ? "color:#5c6b66" : ""}">${right}</td></tr>`;
 
-export function dailySummary(habits: Habit[], logs: LogMap, today: string) {
+export interface TaskSplit {
+  overdue: Task[];
+  today: Task[];
+  tomorrow: Task[];
+  doneToday: Task[];
+  projects: Project[];
+}
+
+export function splitTasks(data: { open: Task[]; done: Task[]; projects: Project[] }, today: string, tz: string): TaskSplit {
+  const open = [...data.open].sort(compareTasks);
+  return {
+    overdue: open.filter((t) => t.due_date! < today),
+    today: open.filter((t) => t.due_date === today),
+    tomorrow: open.filter((t) => t.due_date === addDays(today, 1)),
+    doneToday: data.done.filter((t) => t.done_at && nowIn(tz, new Date(t.done_at)).key === today),
+    projects: data.projects,
+  };
+}
+
+function taskLine(t: Task, projects: Project[], today: string) {
+  const p = projects.find((x) => x.id === t.project_id);
+  const late = t.due_date && t.due_date < today ? daysBetween(t.due_date, today) : 0;
+  const right = late ? `hace ${late} d` : t.due_time ? fmtTime(t.due_time) : "";
+  return row(`${esc(t.title)}${p ? `<br><span style="font-size:12px;color:#5c6b66">${esc(p.name)}</span>` : ""}`, right, false);
+}
+
+function tasksBlock(ts: TaskSplit, today: string) {
+  const section = (title: string, items: Task[], color = "#13201c") =>
+    items.length
+      ? `<p style="margin:16px 0 4px;font-weight:700;color:${color}">${title} <span style="font-weight:400;color:#5c6b66">${items.length}</span></p><table style="width:100%;border-collapse:collapse;font-size:14px">${items.map((t) => taskLine(t, ts.projects, today)).join("")}</table>`
+      : "";
+  const pending = ts.overdue.length + ts.today.length;
+  if (!pending && !ts.tomorrow.length && !ts.doneToday.length) return "";
+  return `<div style="border-top:1px solid #d3dad6;margin-top:16px;padding-top:4px">
+<p style="margin:12px 0 0;font-family:Menlo,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#5c6b66">Tareas · ${ts.doneToday.length} hechas hoy</p>
+${section("Vencidas", ts.overdue, "#c8462f")}${section("Quedan de hoy", ts.today)}${section("Para mañana", ts.tomorrow)}</div>`;
+}
+
+export function dailySummary(habits: Habit[], logs: LogMap, today: string, tasks?: TaskSplit) {
   const todays = habits.filter((h) => isScheduled(h, today) && today >= h.start_date);
   const done = todays.filter((h) => isDone(logs, h, today));
   const pending = todays.filter((h) => !isDone(logs, h, today));
@@ -33,8 +72,11 @@ export function dailySummary(habits: Habit[], logs: LogMap, today: string) {
     inner += `<p style="margin:14px 0 0;padding:10px 12px;background:#fbe3dd;border-radius:10px;color:#c8462f"><b>Nunca falles dos veces:</b> ${risk.map((h) => esc(h.name)).join(", ")} ya se quedó ayer. Todavía estás a tiempo.</p>`;
   if (top && streak(logs, top, today) > 0)
     inner += `<p style="margin:14px 0 0;color:#5c6b66">Tu racha más larga: ${esc(top.name)}, ${streak(logs, top, today)} días seguidos.</p>`;
-  const title = pending.length === 0 && todays.length ? "Cumpliste todo hoy" : subject;
-  return { subject, html: shell(title, inner) };
+  if (tasks) inner += tasksBlock(tasks, today);
+  const openTasks = tasks ? tasks.overdue.length + tasks.today.length : 0;
+  const subj = todays.length ? subject + (openTasks ? ` · ${openTasks} tareas pendientes` : "") : openTasks ? `Hoy: ${openTasks} tareas pendientes` : subject;
+  const title = pending.length === 0 && todays.length && !openTasks ? "Cumpliste todo hoy" : subj;
+  return { subject: subj, html: shell(title, inner) };
 }
 
 export function weeklySummary(habits: Habit[], logs: LogMap, today: string) {

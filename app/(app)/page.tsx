@@ -3,6 +3,9 @@
 import Link from "next/link";
 import HabitRow from "@/components/HabitRow";
 import { useHabits } from "@/components/HabitsProvider";
+import TaskRow from "@/components/TaskRow";
+import { useTasks } from "@/components/TasksProvider";
+import { compareTasks } from "@/lib/tasks";
 import { IconGear } from "@/components/Icons";
 import { longDate } from "@/lib/dates";
 import { isDone, isScheduled, missedLast } from "@/lib/habits";
@@ -16,6 +19,10 @@ const PARTS: [DayPart, string][] = [
 
 export default function Today() {
   const { ready, error, habits, logs, today, openForm, reload } = useHabits();
+  const { tasks, openTaskForm } = useTasks();
+  const dayTasks = tasks.filter((t) => !t.done_at && !t.someday && t.due_date && t.due_date <= today).sort(compareTasks);
+  const doneToday = tasks.filter((t) => t.done_at && new Date(t.done_at).toDateString() === new Date().toDateString() && !!t.due_date && t.due_date <= today);
+  const overdueN = dayTasks.filter((t) => t.due_date! < today).length;
   const todays = habits.filter((h) => isScheduled(h, today));
   const rest = habits.filter((h) => !isScheduled(h, today));
   const done = todays.filter((h) => isDone(logs, h, today)).length;
@@ -55,12 +62,13 @@ export default function Today() {
         <div className="list">
           <div className="skeleton" /><div className="skeleton" /><div className="skeleton" />
         </div>
-      ) : !habits.length ? (
+      ) : !habits.length && !dayTasks.length && !doneToday.length ? (
         <div className="empty">
-          <p>Todavía no tienes hábitos.</p>
-          <button className="btn primary" style={{ flex: "none", padding: "12px 20px" }} onClick={() => openForm()}>
-            Crear el primero
-          </button>
+          <p>Nada para hoy todavía.</p>
+          <div className="row-actions" style={{ justifyContent: "center" }}>
+            <button className="btn primary" style={{ flex: "none", padding: "12px 20px" }} onClick={() => openForm()}>Crear un hábito</button>
+            <button className="btn" style={{ flex: "none", padding: "12px 20px" }} onClick={() => openTaskForm(null, { due_date: today })}>Agregar tarea</button>
+          </div>
         </div>
       ) : (
         <>
@@ -71,6 +79,18 @@ export default function Today() {
                 Ayer se quedó pendiente <b>{risk.map((h) => h.name).join(" y ")}</b>. Hazlo hoy, aunque sea la versión mínima.
               </span>
             </div>
+          )}
+          {(dayTasks.length > 0 || doneToday.length > 0) && (
+            <section>
+              <div className="section-label">
+                <span>Tareas{overdueN ? ` · ${overdueN} vencidas` : ""}</span>
+                <span className="num">{doneToday.length}/{doneToday.length + dayTasks.length}</span>
+              </div>
+              <div className="list">
+                {dayTasks.map((t) => <TaskRow key={t.id} t={t} />)}
+                {doneToday.map((t) => <TaskRow key={t.id} t={t} />)}
+              </div>
+            </section>
           )}
           {PARTS.map(([key, label]) => {
             const g = todays.filter((h) => h.part === key).sort((a, b) => (a.remind_time ?? "").localeCompare(b.remind_time ?? ""));
