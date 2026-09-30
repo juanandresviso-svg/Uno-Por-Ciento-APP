@@ -11,13 +11,31 @@ export interface PushPayload {
   actions?: { action: string; title: string }[];
 }
 
+/** Limpia una clave pegada con espacios, saltos de línea, comillas, "=" o en base64 normal. */
+export function cleanKey(k: string | undefined) {
+  if (!k) return k;
+  return k
+    .trim()
+    .replace(/^["']+|["']+$/g, "")
+    .replace(/\s+/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
 let configured = false;
 function configure() {
   if (configured) return;
-  const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
+  const pub = cleanKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
+  const priv = cleanKey(process.env.VAPID_PRIVATE_KEY);
   if (!pub || !priv) throw new Error("Faltan las claves VAPID");
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@example.com", pub, priv);
+  let subject = (process.env.VAPID_SUBJECT || "").trim().replace(/^["']+|["']+$/g, "");
+  if (!/^(mailto:|https:)/.test(subject)) subject = subject.includes("@") ? `mailto:${subject}` : "mailto:juanandresviso@gmail.com";
+  try {
+    webpush.setVapidDetails(subject, pub, priv);
+  } catch (e) {
+    throw new Error(`Clave VAPID inválida en Vercel (${(e as Error).message}). Vuelve a pegar NEXT_PUBLIC_VAPID_PUBLIC_KEY y VAPID_PRIVATE_KEY sin espacios ni comillas.`);
+  }
   configured = true;
 }
 

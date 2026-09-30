@@ -25,7 +25,7 @@ export async function currentSubscription() {
 
 export async function enablePush(): Promise<string | null> {
   if (!pushSupported()) return "Este navegador no soporta notificaciones.";
-  const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim().replace(/^["']+|["']+$/g, "").replace(/\s+/g, "");
   if (!key) return "Falta NEXT_PUBLIC_VAPID_PUBLIC_KEY en Vercel.";
   const perm = await Notification.requestPermission();
   if (perm !== "granted") return "Permiso denegado. Actívalo en los ajustes del teléfono.";
